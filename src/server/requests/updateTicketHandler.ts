@@ -85,7 +85,20 @@ export async function handleRequest(
     if (args.title !== undefined) updateData.title = args.title;
     if (args.description !== undefined)
       updateData.description = args.description;
-    if (args.stateId !== undefined) updateData.stateId = args.stateId;
+
+    // Special handling for stateId if it's not a UUID but a name like "done"
+    let stateId = args.stateId;
+    if (
+      stateId &&
+      (stateId.toLowerCase() === "done" ||
+        stateId.toLowerCase() === "completed")
+    ) {
+      // Will be set after finding the issue and its workflow states
+      stateId = undefined;
+    } else if (args.stateId) {
+      updateData.stateId = args.stateId;
+    }
+
     if (args.assigneeId !== undefined) updateData.assigneeId = args.assigneeId;
     if (args.priority !== undefined) updateData.priority = args.priority;
     if (args.dueDate !== undefined) updateData.dueDate = args.dueDate;
@@ -156,6 +169,81 @@ export async function handleRequest(
       );
     }
 
+    // Handle special state names like "done" or "completed"
+    if (
+      args.stateId &&
+      (args.stateId.toLowerCase() === "done" ||
+        args.stateId.toLowerCase() === "completed")
+    ) {
+      try {
+        // Get the team for this issue to find its workflow
+        const teamId = issue.teamId;
+
+        // If the issue has no teamId, try to get it from the ticket key
+        let effectiveTeamId = teamId;
+        if (!effectiveTeamId && args.ticketId.includes("-")) {
+          const [teamKey] = args.ticketId.split("-");
+
+          try {
+            const teams = await linearClient.teams({
+              filter: {
+                key: {
+                  eq: teamKey,
+                },
+              },
+            });
+
+            if (teams.nodes.length > 0) {
+              effectiveTeamId = teams.nodes[0].id;
+            }
+          } catch (error) {
+            // Just log the error and continue with null team ID
+            console.warn(`Error finding team by key ${teamKey}:`, error);
+          }
+        }
+
+        if (effectiveTeamId) {
+          // Get workflow states for this team
+          const workflowStates = await linearClient.workflowStates({
+            filter: {
+              team: {
+                id: {
+                  eq: effectiveTeamId,
+                },
+              },
+            },
+          });
+
+          // Find the "Done" or "Completed" state
+          const doneState = workflowStates.nodes.find(
+            (state) =>
+              state.name.toLowerCase() === "done" ||
+              state.name.toLowerCase() === "completed" ||
+              state.type === "completed",
+          );
+
+          if (doneState) {
+            updateData.stateId = doneState.id;
+          } else {
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Could not find a 'Done' state for this team`,
+            );
+          }
+        } else {
+          throw new McpError(
+            ErrorCode.InternalError,
+            `Ticket does not have a team, cannot determine workflow states`,
+          );
+        }
+      } catch (error) {
+        throw new McpError(
+          ErrorCode.InternalError,
+          `Failed to find 'Done' state: ${(error as Error).message}`,
+        );
+      }
+    }
+
     // Update the issue using the updateIssue method
     const updateResult = await linearClient.updateIssue(issue.id, updateData);
 
@@ -194,6 +282,31 @@ export async function handleRequest(
       }
     }
 
+    // Get state data if available
+    let state = null;
+    if (updatedIssue.stateId) {
+      try {
+        const states = await linearClient.workflowStates({
+          filter: {
+            id: {
+              eq: updatedIssue.stateId,
+            },
+          },
+        });
+
+        if (states && states.nodes.length > 0) {
+          const stateData = states.nodes[0];
+          state = {
+            id: stateData.id,
+            name: stateData.name || "Unknown",
+            type: stateData.type || "Unknown",
+          };
+        }
+      } catch (error) {
+        console.warn("Error fetching state:", error);
+      }
+    }
+
     // Generate the key if not available
     const ticketKey =
       updatedIssue.key ||
@@ -212,6 +325,7 @@ export async function handleRequest(
         number: updatedIssue.number,
         key: ticketKey,
         updatedAt: updatedIssue.updatedAt,
+        state: state,
         url: updatedIssue.url,
       },
     };

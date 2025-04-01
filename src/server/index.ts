@@ -207,6 +207,24 @@ class LinearMcpServer {
             required: ["projectId"],
           },
         },
+        {
+          name: "get-linear-workflow-states",
+          description: "Get workflow states for a Linear team",
+          inputSchema: {
+            type: "object",
+            properties: {
+              teamId: {
+                type: "string",
+                description: "ID of the team to get workflow states for",
+              },
+              teamKey: {
+                type: "string",
+                description:
+                  "Key of the team to get workflow states for (e.g. 'PLA')",
+              },
+            },
+          },
+        },
       ],
     }));
 
@@ -352,6 +370,23 @@ class LinearMcpServer {
               progress,
               icon,
               color,
+            });
+          }
+          case "get-linear-workflow-states": {
+            const { handleRequest } = await import(
+              "./requests/getWorkflowStatesHandler.js"
+            );
+
+            // Extract arguments
+            const { teamId, teamKey } = request.params.arguments as {
+              teamId?: string;
+              teamKey?: string;
+            };
+
+            return handleRequest({
+              apiKey: this.apiKey,
+              teamId,
+              teamKey,
             });
           }
           default:

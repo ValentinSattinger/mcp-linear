@@ -57,6 +57,12 @@ declare module "@linear/sdk" {
     fetch(): Promise<WorkflowState>;
   }
 
+  export interface IssueLabel {
+    id: string;
+    name: string;
+    color: string;
+  }
+
   export interface IssueQueryOptions {
     filter?: Record<string, unknown>;
     first?: number;
@@ -64,6 +70,10 @@ declare module "@linear/sdk" {
     last?: number;
     before?: string;
     orderBy?: string;
+    includeAssignee?: boolean;
+    includeTeam?: boolean;
+    includeState?: boolean;
+    includeLabels?: boolean;
   }
 
   export interface ProjectQueryOptions {
@@ -102,8 +112,20 @@ declare module "@linear/sdk" {
     orderBy?: string;
   }
 
+  export interface IssueLabelQueryOptions {
+    filter?: Record<string, unknown>;
+    first?: number;
+    after?: string;
+    last?: number;
+    before?: string;
+    orderBy?: string;
+  }
+
   export class LinearClient {
     constructor(options: { apiKey: string });
+
+    // Custom GraphQL request method
+    _request<T>(query: string, variables?: Record<string, unknown>): Promise<T>;
 
     // Issue methods
     issue(id: string): Promise<Issue>;
@@ -134,6 +156,11 @@ declare module "@linear/sdk" {
     workflowStates(
       options?: WorkflowStateQueryOptions,
     ): Promise<{ nodes: WorkflowState[] }>;
+
+    // Label methods
+    issueLabels(
+      options?: IssueLabelQueryOptions,
+    ): Promise<{ nodes: IssueLabel[] }>;
   }
 
   export interface ProjectConnection {
